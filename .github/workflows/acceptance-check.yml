@@ -46,10 +46,12 @@ jobs:
           echo "HEAD_SHA    = $HEAD_SHA"
           python .github/.scripts/validate_acceptance.py
 
-      - name: Automerge PR if val succeeded
+      - name: Enable automerge
         if: success()
         uses: peter-evans/enable-pull-request-automerge@v3
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          pull-request-number: ${{ github.event.pull_request.number }}
           merge-method: squash
 
       - name: Report success
