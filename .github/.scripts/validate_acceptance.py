@@ -215,7 +215,7 @@ def validate_changed_files(pr_author, base_sha, head_sha):
 
 
 
-def print_results(errors, warnings):
+def print_results(errors):
     print("=" * 70)
     if errors:
         print("ОБНАРУЖЕНЫ ОШИБКИ (требуют исправления):")
