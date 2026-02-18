@@ -41,6 +41,7 @@ def print_header(pr_author):
 
 def validate_branch_name(pr_author, pr_branch):
     errors = []
+    expected = f"{pr_author}_accept"
     if not re.fullmatch(rf"{re.escape(pr_author)}_accept", pr_branch):
         errors.append(
             f"!!  Неверное имя ветки.\n"
