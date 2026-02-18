@@ -1,24 +1,25 @@
-name: Acceptance Validation
+name: Acceptance Validation & Merge
 
 on:
   pull_request:
     types: [opened, synchronize, reopened, edited]
-    branches: [main]
+    branches:
+      - main
 
 permissions:
-  contents: read
+  contents: write
   pull-requests: write
 
 jobs:
   validate:
+    name: Validate acceptance PR
     runs-on: ubuntu-latest
     if: github.event.pull_request.head.repo.owner.login != 'dkhlebn'
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -26,21 +27,35 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install pyyaml -q
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyyaml
 
       - name: Run acceptance validation
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_HEAD_REF: ${{ github.head_ref }}
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: python .github/.scripts/validate_acceptance.py
+        run: |
+          echo "PR_TITLE     = $PR_TITLE"
+          echo "PR_HEAD_REF = $PR_HEAD_REF"
+          echo "PR_AUTHOR   = $PR_AUTHOR"
+          echo "BASE_SHA    = $BASE_SHA"
+          echo "HEAD_SHA    = $HEAD_SHA"
+          python .github/.scripts/validate_acceptance.py
+
+      - name: Automerge PR if val succeeded
+        if: success()
+        uses: peter-evans/enable-pull-request-automerge@v3
+        with:
+          merge-method: squash
 
       - name: Report success
         if: success()
         run: |
-          echo "Pегистрация подтверждена: все проверки пройдены"
+          echo "Регистрация подтверждена: все проверки пройдены"
 
       - name: Report failure
         if: failure()

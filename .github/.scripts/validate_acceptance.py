@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import re
 import sys
 import yaml
 from pathlib import Path
@@ -15,6 +16,9 @@ REFERENCE_AGREEMENT = """Я подтверждаю следующее:
 
 Нарушение этих правил может повлечь за собой исключение из курса или аннулирование результатов.
 """
+
+def normalize(s):
+    return "\n".join(line.rstrip() for line in s.strip().splitlines())
 
 
 def load_env_vars():
@@ -37,8 +41,7 @@ def print_header(pr_author):
 
 def validate_branch_name(pr_author, pr_branch):
     errors = []
-    expected = f"{pr_author}_accept"
-    if pr_branch != expected:
+    if not re.fullmatch(rf"{re.escape(pr_author)}_accept", pr_branch):
         errors.append(
             f"!!  Неверное имя ветки.\n"
             f"    Ожидается: '{expected}'\n"
@@ -64,7 +67,6 @@ def validate_pr_title(pr_author, pr_title):
 
 
 def validate_file_exists(pr_author):
-    """Проверяет существование файла accepts_2025/<username>.yaml."""
     errors = []
     yaml_path = Path('accepts_2025') / f'{pr_author}.yaml'
     if not yaml_path.exists():
@@ -75,7 +77,7 @@ def validate_file_exists(pr_author):
         )
         return errors, None
     else:
-        print(f"....Файл найден: {yaml_path.relative_to(Path.cwd())}")
+        print(f"....Файл найден: {yaml_path}")
         return errors, yaml_path
 
 
@@ -114,7 +116,7 @@ def validate_yaml_content(pr_author, yaml_path):
                 print(f"....Фамилия указана: {data['last_name']}")
         if 'repo' in data:
             repo_val = data['repo']
-            if repo_val == 'None':
+            if repo_val in ('None', None):
                 print(f"....Выбран формат сдачи: проект (repo=None)")
             elif isinstance(repo_val, str) and repo_val.strip().startswith(('http://', 'https://')):
                 print(f"....Указан репозиторий для домашних заданий: {repo_val.strip()}")
@@ -131,11 +133,27 @@ def validate_yaml_content(pr_author, yaml_path):
                 )
             else:
                 print(f"....Формат сдачи: {data['grading']}")
+
+        if 'grading' in data and 'repo' in data:
+            grading = data['grading']
+            repo = data['repo']
+
+            if grading == 'project' and repo not in ('None', None):
+                errors.append(
+                    "!!  При grading: project поле repo должно быть 'None'."
+                )
+
+            if grading == 'homeworks':
+                if not (isinstance(repo, str) and repo.startswith(('http://', 'https://'))):
+                    errors.append(
+                        "!!  При grading: homeworks поле repo должно содержать URL репозитория."
+                    )
+
         if 'agreement' in data:
             if not isinstance(data['agreement'], str) or not data['agreement'].strip():
                 errors.append("!!  Поле 'agreement' должно содержать текст соглашения")
             else:
-                if data['agreement'] != REFERENCE_AGREEMENT:
+                if normalize(data['agreement']) != normalize(REFERENCE_AGREEMENT):
                     errors.append(
                         "!!  Текст соглашения не совпадает с официальным текстом курса.\n"
                         "    Скопируйте текст соглашения дословно из файла README.md в папке accepts_2025/"
@@ -157,38 +175,41 @@ def validate_changed_files(pr_author, base_sha, head_sha):
     errors = []
     try:
         result = subprocess.run(
-            ['git', 'diff', '--name-only', base_sha, head_sha],
+            ['git', 'diff', '--name-status', base_sha, head_sha],
             capture_output=True,
             text=True,
             check=True,
-            cwd='.'
         )
-        changed_files = [f.strip() for f in result.stdout.splitlines() if f.strip()]
-        accepts_changes = [f for f in changed_files if f.startswith('accepts_2025/')]
-        if not accepts_changes:
+        changes = [line.split() for line in result.stdout.splitlines()]
+
+        if len(changes) != 1:
             errors.append(
-                "!!  Не обнаружено изменений в папке accepts_2025/\n"
-                "    Убедитесь, что вы создали файл и сделали коммит."
+                f"!!  PR должен содержать ровно один изменённый файл.\n"
+                f"    Обнаружено изменений: {len(changes)}"
             )
-        elif len(accepts_changes) > 1:
+            return errors
+
+        status, path = changes[0]
+        expected = f'accepts_2025/{pr_author}.yaml'
+
+        if status != 'A':
             errors.append(
-                f"!!  Обнаружено изменений в {len(accepts_changes)} файлах папки accepts_2025/:\n"
-                f"    - {'\n   - '.join(accepts_changes)}\n"
-                f"    Должен изменяться только один файл: {pr_author}.yaml"
+                f"!!  Файл должен быть *добавлен*, а не изменён или удалён.\n"
+                f"    Получено: {status} {path}"
+            )
+
+        if path != expected:
+            errors.append(
+                f"!!  Неверное имя файла.\n"
+                f"    Ожидается: {expected}\n"
+                f"    Получено:  {path}"
             )
         else:
-            changed = accepts_changes[0]
-            expected = f'accepts_2025/{pr_author}.yaml'
-            if changed != expected:
-                errors.append(
-                    f"!!  Изменён файл '{changed}', но ожидался '{expected}'\n"
-                    f"    Имя файла должно совпадать с вашим GitHub username."
-                )
-            else:
-                print(f"....Изменён только ожидаемый файл: {changed}")
+            print(f"....Добавлен корректный файл: {path}")
     except subprocess.CalledProcessError as e:
-        errors.append(f"!!  Не удалось проверить список изменённых файлов: {e}")
+        errors.append(f"!!  Ошибка git diff: {e}")
     return errors
+
 
 
 def print_results(errors, warnings):
@@ -196,7 +217,7 @@ def print_results(errors, warnings):
     if errors:
         print("ОБНАРУЖЕНЫ ОШИБКИ (требуют исправления):")
         print()
-        for err in errors):
+        for err in errors:
             print(err)
             print()
     else:
@@ -217,16 +238,14 @@ def main():
     all_errors.extend(file_errors)
     print()
     if yaml_path:
-        content_errors, content_warnings = validate_yaml_content(env['pr_author'], yaml_path)
+        content_errors = validate_yaml_content(env['pr_author'], yaml_path)
         all_errors.extend(content_errors)
-        all_warnings.extend(content_warnings)
         print()
-    changed_errors, changed_warnings = validate_changed_files(
+    changed_errors = validate_changed_files(
         env['pr_author'], env['base_sha'], env['head_sha']
     )
     all_errors.extend(changed_errors)
-    all_warnings.extend(changed_warnings)
-    print_results(all_errors, all_warnings)
+    print_results(all_errors)
     sys.exit(0 if not all_errors else 1)
 
 
