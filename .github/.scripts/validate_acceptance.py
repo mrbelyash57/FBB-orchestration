@@ -168,6 +168,8 @@ def validate_yaml_content(pr_author, yaml_path):
                 )
             else:
                 print("....Согласие с правилами подтверждено (agree_to_rules: yes)")
+    except:
+        print("!!  Ошибка с YAML-файлом.")
     return errors
 
 
