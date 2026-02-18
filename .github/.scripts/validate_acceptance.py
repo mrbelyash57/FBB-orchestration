@@ -206,9 +206,10 @@ def validate_changed_files(pr_author, base_sha, head_sha):
             )
         else:
             print(f"....Добавлен корректный файл: {path}")
+        return errors
     except subprocess.CalledProcessError as e:
         errors.append(f"!!  Ошибка git diff: {e}")
-    return errors
+        return errors
 
 
 
